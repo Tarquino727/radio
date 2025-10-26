@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import type { RadioState, QueueItem, Song } from "@shared/schema";
+import type { RadioState, QueueItem, Song, RadioInfo } from "@shared/schema";
 
 // Storage interface for multi-radio management
 export interface IStorage {
@@ -8,6 +8,10 @@ export interface IStorage {
   createRadio(name: string): Promise<RadioState>;
   updateRadioState(name: string, state: Partial<RadioState>): Promise<RadioState>;
   getAllRadios(): Promise<RadioState[]>;
+  getAllRadioInfo(): Promise<RadioInfo[]>;
+  renameRadio(oldName: string, newName: string): Promise<void>;
+  deleteRadio(name: string): Promise<void>;
+  radioExists(name: string): Promise<boolean>;
   
   // Queue operations
   addToQueue(radioName: string, song: Song): Promise<QueueItem>;
@@ -35,6 +39,10 @@ export class MemStorage implements IStorage {
   }
 
   async createRadio(name: string): Promise<RadioState> {
+    if (this.radios.has(name)) {
+      throw new Error(`Radio ${name} already exists`);
+    }
+    
     const radio: RadioState = {
       name,
       queue: [],
@@ -57,6 +65,43 @@ export class MemStorage implements IStorage {
 
   async getAllRadios(): Promise<RadioState[]> {
     return Array.from(this.radios.values());
+  }
+
+  async getAllRadioInfo(): Promise<RadioInfo[]> {
+    return Array.from(this.radios.values()).map(radio => ({
+      name: radio.name,
+      queueLength: radio.queue.length,
+      isPlaying: radio.isPlaying,
+    }));
+  }
+
+  async renameRadio(oldName: string, newName: string): Promise<void> {
+    const radio = this.radios.get(oldName);
+    if (!radio) {
+      throw new Error(`Radio ${oldName} not found`);
+    }
+    
+    if (this.radios.has(newName)) {
+      throw new Error(`Radio ${newName} already exists`);
+    }
+    
+    // Update radio name
+    radio.name = newName;
+    
+    // Move to new key
+    this.radios.delete(oldName);
+    this.radios.set(newName, radio);
+  }
+
+  async deleteRadio(name: string): Promise<void> {
+    if (!this.radios.has(name)) {
+      throw new Error(`Radio ${name} not found`);
+    }
+    this.radios.delete(name);
+  }
+
+  async radioExists(name: string): Promise<boolean> {
+    return this.radios.has(name);
   }
 
   async addToQueue(radioName: string, song: Song): Promise<QueueItem> {

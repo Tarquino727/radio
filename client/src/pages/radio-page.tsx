@@ -58,6 +58,18 @@ export default function RadioPage() {
               description: message.data.song.title,
             });
             break;
+          case "radio_renamed_rejoin":
+            // Radio was renamed, update state and rejoin
+            setRadioState(prev => ({ ...prev, name: message.data.newName }));
+            ws.send(JSON.stringify({ 
+              type: "join_radio", 
+              data: { radioName: message.data.newName } 
+            }));
+            toast({
+              title: "Radio renamed",
+              description: `This radio is now called "${message.data.newName}"`,
+            });
+            break;
           case "error":
             toast({
               title: "Error",
@@ -94,7 +106,7 @@ export default function RadioPage() {
     setIsAddingToQueue(true);
     socket.send(JSON.stringify({
       type: "add_song",
-      data: { url: url.trim(), radioName }
+      data: { url: url.trim(), radioName: radioState.name }
     }));
     setUrl("");
     setIsAddingToQueue(false);
@@ -104,7 +116,7 @@ export default function RadioPage() {
     if (socket) {
       socket.send(JSON.stringify({
         type: "play_pause",
-        data: { radioName }
+        data: { radioName: radioState.name }
       }));
     }
   };
@@ -113,12 +125,12 @@ export default function RadioPage() {
     if (socket) {
       socket.send(JSON.stringify({
         type: "skip",
-        data: { radioName }
+        data: { radioName: radioState.name }
       }));
     }
   };
 
-  const streamUrl = `${window.location.protocol}//${window.location.host}/stream/${radioName}`;
+  const streamUrl = `${window.location.protocol}//${window.location.host}/stream/${radioState.name}`;
 
   const handleCopyStreamUrl = async () => {
     try {
@@ -153,7 +165,7 @@ export default function RadioPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-4xl md:text-5xl font-bold leading-tight capitalize">
-                {radioName} Radio
+                {radioState.name} Radio
               </h1>
               <div className="flex items-center gap-2 mt-2">
                 <Badge variant="outline" className="gap-1">

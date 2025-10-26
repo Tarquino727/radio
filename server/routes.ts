@@ -29,6 +29,9 @@ const activeStreams = new Map<string, {
 // WebSocket clients by radio
 const radioClients = new Map<string, Set<WebSocket>>();
 
+// All connected WebSocket clients (for global broadcasts)
+const allClients = new Set<WebSocket>();
+
 // Helper function to broadcast to all clients in a radio
 function broadcastToRadio(radioName: string, message: any) {
   const clients = radioClients.get(radioName);
@@ -40,6 +43,16 @@ function broadcastToRadio(radioName: string, message: any) {
       }
     });
   }
+}
+
+// Helper function to broadcast to all connected clients
+function broadcastToAll(message: any) {
+  const data = JSON.stringify(message);
+  allClients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(data);
+    }
+  });
 }
 
 // Helper function to extract YouTube video ID from URL
@@ -225,18 +238,202 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // WebSocket server for real-time communication
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
+  // Track currentRadio for each WebSocket
+  const wsCurrentRadio = new Map<WebSocket, string | null>();
+
   wss.on('connection', (ws: WebSocket) => {
     console.log('New WebSocket connection');
-    let currentRadio: string | null = null;
+    wsCurrentRadio.set(ws, null);
+    
+    // Add to global clients list
+    allClients.add(ws);
 
     ws.on('message', async (data: Buffer) => {
       try {
         const message = JSON.parse(data.toString());
         
         switch (message.type) {
+          case "get_all_radios": {
+            const radios = await storage.getAllRadioInfo();
+            ws.send(JSON.stringify({
+              type: "all_radios",
+              data: { radios },
+            }));
+            break;
+          }
+
+          case "create_radio": {
+            const { name } = message.data;
+            
+            try {
+              if (!name || typeof name !== 'string' || name.trim().length === 0) {
+                throw new Error("El nombre de la radio no puede estar vacío");
+              }
+
+              const radioName = name.trim().toLowerCase();
+              
+              if (await storage.radioExists(radioName)) {
+                throw new Error(`La radio "${radioName}" ya existe`);
+              }
+
+              await storage.createRadio(radioName);
+              
+              // Broadcast to all clients
+              const radios = await storage.getAllRadioInfo();
+              broadcastToAll({
+                type: "all_radios",
+                data: { radios },
+              });
+              
+              broadcastToAll({
+                type: "radio_created",
+                data: { name: radioName },
+              });
+            } catch (error: any) {
+              ws.send(JSON.stringify({
+                type: "error",
+                data: { message: error.message || "Failed to create radio" },
+              }));
+            }
+            break;
+          }
+
+          case "rename_radio": {
+            const { oldName, newName } = message.data;
+            
+            try {
+              if (!newName || typeof newName !== 'string' || newName.trim().length === 0) {
+                throw new Error("El nuevo nombre no puede estar vacío");
+              }
+
+              const newRadioName = newName.trim().toLowerCase();
+              
+              if (oldName === newRadioName) {
+                throw new Error("El nuevo nombre debe ser diferente");
+              }
+
+              if (await storage.radioExists(newRadioName)) {
+                throw new Error(`La radio "${newRadioName}" ya existe`);
+              }
+
+              await storage.renameRadio(oldName, newRadioName);
+              
+              // Update active streams
+              const streamData = activeStreams.get(oldName);
+              if (streamData) {
+                activeStreams.delete(oldName);
+                activeStreams.set(newRadioName, streamData);
+              }
+              
+              // Update client mappings and notify connected clients
+              const clients = radioClients.get(oldName);
+              if (clients) {
+                radioClients.delete(oldName);
+                radioClients.set(newRadioName, clients);
+                
+                // Update currentRadio for all connected WebSockets
+                clients.forEach(client => {
+                  wsCurrentRadio.set(client, newRadioName);
+                  
+                  // Notify client to rejoin with new name
+                  if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({
+                      type: "radio_renamed_rejoin",
+                      data: { oldName, newName: newRadioName },
+                    }));
+                  }
+                });
+              }
+              
+              // Broadcast to all clients
+              const radios = await storage.getAllRadioInfo();
+              broadcastToAll({
+                type: "all_radios",
+                data: { radios },
+              });
+              
+              broadcastToAll({
+                type: "radio_renamed",
+                data: { oldName, newName: newRadioName },
+              });
+            } catch (error: any) {
+              ws.send(JSON.stringify({
+                type: "error",
+                data: { message: error.message || "Failed to rename radio" },
+              }));
+            }
+            break;
+          }
+
+          case "delete_radio": {
+            const { name } = message.data;
+            
+            try {
+              if (!(await storage.radioExists(name))) {
+                throw new Error(`La radio "${name}" no existe`);
+              }
+
+              await storage.deleteRadio(name);
+              
+              // Clean up active streams
+              const streamData = activeStreams.get(name);
+              if (streamData) {
+                if (streamData.currentProcess) {
+                  streamData.currentProcess.kill();
+                }
+                activeStreams.delete(name);
+              }
+              
+              // Disconnect all clients from this radio
+              const clients = radioClients.get(name);
+              if (clients) {
+                clients.forEach(client => {
+                  if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({
+                      type: "error",
+                      data: { message: `La radio "${name}" ha sido eliminada` },
+                    }));
+                  }
+                });
+                radioClients.delete(name);
+              }
+              
+              // Broadcast to all clients
+              const radios = await storage.getAllRadioInfo();
+              broadcastToAll({
+                type: "all_radios",
+                data: { radios },
+              });
+              
+              broadcastToAll({
+                type: "radio_deleted",
+                data: { name },
+              });
+            } catch (error: any) {
+              ws.send(JSON.stringify({
+                type: "error",
+                data: { message: error.message || "Failed to delete radio" },
+              }));
+            }
+            break;
+          }
+
           case "join_radio": {
             const { radioName } = message.data;
-            currentRadio = radioName;
+            const currentRadio = wsCurrentRadio.get(ws);
+            
+            // Remove from previous radio if any
+            if (currentRadio) {
+              const prevClients = radioClients.get(currentRadio);
+              if (prevClients) {
+                prevClients.delete(ws);
+                if (prevClients.size === 0) {
+                  radioClients.delete(currentRadio);
+                }
+              }
+            }
+            
+            wsCurrentRadio.set(ws, radioName);
 
             // Add client to radio room
             if (!radioClients.has(radioName)) {
@@ -343,6 +540,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     ws.on('close', () => {
+      // Remove from global clients
+      allClients.delete(ws);
+      
+      const currentRadio = wsCurrentRadio.get(ws);
       if (currentRadio) {
         const clients = radioClients.get(currentRadio);
         if (clients) {
@@ -352,6 +553,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
+      
+      wsCurrentRadio.delete(ws);
       console.log('WebSocket connection closed');
     });
   });

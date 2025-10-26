@@ -33,6 +33,15 @@ export const radioStateSchema = z.object({
 
 export type RadioState = z.infer<typeof radioStateSchema>;
 
+// Radio info for listing
+export const radioInfoSchema = z.object({
+  name: z.string(),
+  queueLength: z.number(),
+  isPlaying: z.boolean(),
+});
+
+export type RadioInfo = z.infer<typeof radioInfoSchema>;
+
 // Add song request schema
 export const addSongRequestSchema = z.object({
   url: z.string().url("Please enter a valid YouTube or Spotify URL"),
@@ -48,6 +57,10 @@ export type SocketEvents = {
   add_song: { url: string; radioName: string };
   play_pause: { radioName: string };
   skip: { radioName: string };
+  get_all_radios: {};
+  create_radio: { name: string };
+  rename_radio: { oldName: string; newName: string };
+  delete_radio: { name: string };
   
   // Server to client
   radio_state: RadioState;
@@ -56,4 +69,9 @@ export type SocketEvents = {
   playback_state: { isPlaying: boolean };
   error: { message: string };
   song_added: { song: Song };
+  all_radios: { radios: RadioInfo[] };
+  radio_created: { name: string };
+  radio_renamed: { oldName: string; newName: string };
+  radio_renamed_rejoin: { oldName: string; newName: string };
+  radio_deleted: { name: string };
 };
