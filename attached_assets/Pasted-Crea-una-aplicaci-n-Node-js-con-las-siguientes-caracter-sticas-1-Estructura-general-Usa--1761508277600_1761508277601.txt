@@ -1,0 +1,61 @@
+Crea una aplicación Node.js con las siguientes características:
+
+1. Estructura general:
+   - Usa Express como servidor principal.
+   - Usa Socket.io para comunicación en tiempo real entre usuarios conectados.
+   - Usa las librerías: express, ytdl-core, ffmpeg-static, fluent-ffmpeg, socket.io, spotify-url-info, youtube-search-api, path, cors.
+
+2. Funcionalidad principal:
+   - El sistema manejará múltiples "radios", cada una identificada por un nombre (por ejemplo: /radio/lofi, /radio/fiesta, /radio/retro).
+   - Cada radio tiene su propia cola de canciones (playlist) independiente.
+   - Se podrá agregar canciones desde YouTube o Spotify (si es Spotify, se obtiene el título con spotify-url-info y se busca en YouTube usando youtube-search-api).
+   - Cada radio transmite su audio en una ruta específica: /stream/:radio
+     Ejemplo: /stream/lofi
+   - Esa ruta /stream/:radio devolverá un flujo de audio (.mp3) continuo, que podrá usarse dentro de Minecraft Simple Voice Chat Radio o cualquier reproductor.
+
+3. Interfaz gráfica:
+   - Crea una interfaz web en public/index.html.
+   - Si se accede a la ruta /radio/:nombre, muestra una página con:
+     - Un título con el nombre de la radio.
+     - Un campo para pegar un link de YouTube o Spotify.
+     - Un botón "Agregar a la cola".
+     - Una lista de canciones en cola (sin recargar la página).
+     - Botones de "Play/Pause" y "Siguiente".
+     - Diseño moderno con TailwindCSS y layout responsive.
+   - Usa Socket.io para sincronizar la cola y la canción actual entre todos los usuarios conectados a esa radio.
+
+4. Backend:
+   - Crea un objeto global `radios = {}` donde cada clave (nombre de radio) tiene:
+     ```js
+     {
+       queue: [],
+       current: null,
+       isPlaying: false
+     }
+     ```
+   - Cuando se agrega una canción, si no hay ninguna reproduciéndose, se comienza automáticamente.
+   - Cuando una canción termina, se pasa a la siguiente automáticamente.
+
+5. Streaming:
+   - Usa ytdl-core y fluent-ffmpeg con ffmpeg-static para obtener solo el audio en formato mp3 y transmitirlo en tiempo real.
+   - El endpoint /stream/:radio usará la canción actual de esa radio.
+
+6. Scripts:
+   - Agrega en package.json:
+     ```json
+     "scripts": {
+       "start": "node server.js"
+     }
+     ```
+7. Configuración final:
+   - El servidor debe escuchar en process.env.PORT o 3000.
+   - Muestra en consola al iniciar:
+     ```
+     Servidor de radio en línea listo 🎶
+     ```
+   - Crea automáticamente una radio por defecto llamada “lofi”.
+
+8. Requisitos adicionales:
+   - Asegúrate de que el proyecto se ejecute correctamente en Replit.
+   - Que las URLs públicas (por ejemplo https://tuapp.replit.app/stream/lofi) puedan ser pegadas directamente dentro del mod Simple Voice Chat Radio para escucharlas.
+   - Asegúrate de que cada radio pueda funcionar simultáneamente e independientemente.
