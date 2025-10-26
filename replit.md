@@ -9,6 +9,7 @@ This application allows users to create and manage multiple independent radio st
 ## Features
 
 - **Multiple Independent Radios**: Each radio station operates independently with its own queue and playback state
+- **Dynamic Radio Management**: Create, rename, and delete radios with real-time updates across all connected clients
 - **Real-Time Synchronization**: WebSocket-based real-time updates for all connected users
 - **YouTube & Spotify Support**: Add songs from YouTube directly or search Spotify tracks on YouTube
 - **Audio Streaming**: Continuous MP3 audio streaming via `/stream/:radioName` endpoints
@@ -55,6 +56,8 @@ This application allows users to create and manage multiple independent radio st
 - `now_playing`: Current song update
 - `playback_state`: Play/pause state
 - `song_added`: New song added notification
+- `all_radios`: List of all radios (sent on radio create/rename/delete)
+- `radio_renamed_rejoin`: Notification that current radio was renamed (client must rejoin)
 - `error`: Error message
 
 ## Default Radios
@@ -68,9 +71,26 @@ The application uses a horizontal batching development approach:
 2. Backend - API endpoints, streaming, and real-time sync
 3. Integration & Testing - Connect frontend to backend and test features
 
-## Recent Changes
+## Recent Changes (October 26, 2025)
 
-- Initial project setup with schema definition
-- Beautiful frontend UI with Home and RadioPage components
+### Dynamic Radio Management
+- **Home Page**: Displays all radios dynamically with action buttons (Enter, Copy URL, Rename, Delete)
+- **Create Radio**: Form to create new radios with validation
+- **Rename Radio**: Dialog to rename radios with real-time synchronization
+  - Backend tracks WebSocket connections with `wsCurrentRadio` map
+  - Sends `radio_renamed_rejoin` event to connected clients
+  - Frontend updates state and rejoins with new name
+  - All UI and commands use updated name from state (not URL param)
+- **Delete Radio**: Confirmation dialog before deletion
+- **Real-Time Updates**: All clients see radio list updates immediately
+
+### Bug Fixes
+- Fixed radio rename flow to maintain full client control after rename
+- Changed all handlers and UI rendering to use `radioState.name` instead of URL param
+- Stream URL copying uses updated radio name
+- Replaced emojis with Lucide icons (Headphones, Clipboard) per design guidelines
+
+### Architecture
+- WebSocket-based state synchronization ensures all clients stay in sync
 - In-memory storage for radio states and queues
 - Responsive design following modern streaming platform patterns
