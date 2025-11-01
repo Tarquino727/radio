@@ -212,7 +212,7 @@ async function playNextSong(radioName: string) {
   }
 }
 
-// Start streaming a song
+// 🔊 Reproduce un video usando Invidious en lugar de Piped
 async function startStreaming(radioName: string, song: Song) {
   try {
     // Limpiar cualquier stream anterior
@@ -224,26 +224,54 @@ async function startStreaming(radioName: string, song: Song) {
     const videoId = extractYouTubeId(song.url);
     if (!videoId) throw new Error("Invalid YouTube URL for streaming");
 
-    // 🔹 Usamos la API Piped para obtener el stream directo
-    const response = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
-    if (!response.ok) throw new Error(`Piped API error: ${response.status}`);
+    // 🔹 Mirrors de Invidious
+    const invidiousMirrors = [
+      "https://invidious.slipfox.xyz",
+      "https://invidious.tiekoetter.com",
+      "https://invidious.projectsegfau.lt",
+      "https://invidious.nerdvpn.de",
+    ];
+
+    let response: globalThis.Response | undefined;
+    for (const mirror of invidiousMirrors) {
+      try {
+        response = await fetch(`${mirror}/api/v1/videos/${videoId}`);
+        if (response.ok) {
+          console.log(`🎧 Usando Invidious mirror para stream: ${mirror}`);
+          break;
+        } else {
+          console.warn(`⚠️ Mirror falló (${mirror}): ${response.status}`);
+        }
+      } catch (err) {
+        console.warn(`⚠️ Error al conectar con mirror ${mirror}:`, err);
+      }
+    }
+
+    if (!response || !response.ok) {
+      throw new Error("❌ Ningún mirror Invidious disponible para stream");
+    }
+
     const data = await response.json();
 
-    const audioStreamUrl = data.audioStreams?.[0]?.url;
-    if (!audioStreamUrl) throw new Error("No audio stream found from Piped");
+    // 🔹 Buscar el mejor stream de audio
+    const audioFormat = data.adaptiveFormats?.find(
+      (f: any) => f.type && f.type.includes("audio/")
+    );
+    if (!audioFormat || !audioFormat.url) {
+      throw new Error("No se encontró stream de audio en Invidious");
+    }
 
-    // 🔹 FFMPEG toma el audio directo desde el stream de Piped
     const passThrough = new PassThrough();
-    const ffmpegProcess = ffmpeg(audioStreamUrl)
+    const ffmpegProcess = ffmpeg(audioFormat.url)
       .audioCodec("libmp3lame")
       .audioBitrate(128)
       .format("mp3")
       .on("error", (error) => {
-        console.error(`FFmpeg error for ${radioName}:`, error);
+        console.error(`FFmpeg error para ${radioName}:`, error);
         setTimeout(() => playNextSong(radioName), 1000);
       })
       .on("end", () => {
-        console.log(`Song finished for ${radioName}, playing next`);
+        console.log(`Canción terminada para ${radioName}, pasando a la siguiente`);
         setTimeout(() => playNextSong(radioName), 500);
       });
 
@@ -263,10 +291,11 @@ async function startStreaming(radioName: string, song: Song) {
     }
 
   } catch (error) {
-    console.error(`Error starting stream for ${radioName}:`, error);
+    console.error(`Error iniciando stream para ${radioName}:`, error);
     throw error;
   }
 }
+
 
 
 
