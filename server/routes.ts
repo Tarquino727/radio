@@ -69,7 +69,8 @@ function extractYouTubeId(url: string): string | null {
   return null;
 }
 
-// Get song info from YouTube
+
+// Get song info from YouTube (con fallback de mirrors Piped)
 async function getSongFromYouTube(url: string): Promise<Song> {
   try {
     const videoId = extractYouTubeId(url);
@@ -77,22 +78,46 @@ async function getSongFromYouTube(url: string): Promise<Song> {
       throw new Error("Invalid YouTube URL");
     }
 
-    const response = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
-    if (!response.ok){
-      throw new Error(`Piped API request failed with status ${response.status}`);
+    // 🔹 Lista de mirrors alternativos de Piped
+    const pipedMirrors = [
+      "https://pipedapi.syncpundit.io",
+      "https://pipedapi.leptons.xyz",
+      "https://pipedapi.adminforge.de",
+      "https://pipedapi.kavin.rocks", // último por compatibilidad
+    ];
+
+    let response: globalThis.Response | undefined;
+    for (const mirror of pipedMirrors) {
+      try {
+        response = await fetch(`${mirror}/streams/${videoId}`);
+        if (response.ok) {
+          console.log(`✅ Usando mirror: ${mirror}`);
+          break;
+        } else {
+          console.warn(`⚠️ Mirror falló (${mirror}): ${response.status}`);
+        }
+      } catch (err) {
+        console.warn(`⚠️ Error al conectar con mirror ${mirror}:`, err);
+      }
     }
+
+
+    if (!response || !response.ok) {
+      throw new Error("❌ Ningún mirror Piped disponible");
+    }
+
     const data = await response.json();
 
-    // Se toma el primer stream de audio dispo
+    // Selecciona el primer stream de audio disponible
     const audioStream = data.audioStreams?.[0];
-    if (!audioStream){
+    if (!audioStream) {
       throw new Error("No audio stream found for this video");
     }
 
     return {
       id: randomUUID(),
       title: data.title,
-      artist: data.uploader || "Unknow",
+      artist: data.uploader || "Unknown",
       duration: Math.floor(data.duration / 1000),
       url: `https://www.youtube.com/watch?v=${videoId}`,
       thumbnail: data.thumbnailUrl,
@@ -103,6 +128,7 @@ async function getSongFromYouTube(url: string): Promise<Song> {
     throw new Error("Failed to fetch YouTube video information");
   }
 }
+
 
 // Get song from Spotify (search on YouTube)
 async function getSongFromSpotify(url: string): Promise<Song> {
