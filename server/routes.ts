@@ -77,16 +77,25 @@ async function getSongFromYouTube(url: string): Promise<Song> {
       throw new Error("Invalid YouTube URL");
     }
 
-    const info = await ytdl.getInfo(videoId);
-    const details = info.videoDetails;
+    const response = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
+    if (!response.ok){
+      throw new Error(`Piped API request failed with status ${response.status}`);
+    }
+    const data = await response.json();
+
+    // Se toma el primer stream de audio dispo
+    const audioStream = data.audioStreams?.[0];
+    if (!audioStream){
+      throw new Error("No audio stream found for this video");
+    }
 
     return {
       id: randomUUID(),
-      title: details.title,
-      artist: details.author.name,
-      duration: parseInt(details.lengthSeconds),
+      title: data.title,
+      artist: data.uploader || "Unknow",
+      duration: Math.floor(data.duration / 1000),
       url: `https://www.youtube.com/watch?v=${videoId}`,
-      thumbnail: details.thumbnails[0]?.url,
+      thumbnail: data.thumbnailUrl,
       source: "youtube",
     };
   } catch (error) {
@@ -177,36 +186,35 @@ async function playNextSong(radioName: string) {
 // Start streaming a song
 async function startStreaming(radioName: string, song: Song) {
   try {
-    // Clean up existing stream if any
+    // Limpiar cualquier stream anterior
     const existing = activeStreams.get(radioName);
     if (existing?.currentProcess) {
       existing.currentProcess.kill();
     }
 
     const videoId = extractYouTubeId(song.url);
-    if (!videoId) {
-      throw new Error("Invalid YouTube URL for streaming");
-    }
+    if (!videoId) throw new Error("Invalid YouTube URL for streaming");
 
-    const audioStream = ytdl(videoId, {
-      quality: "highestaudio",
-      filter: "audioonly",
-    });
+    // 🔹 Usamos la API Piped para obtener el stream directo
+    const response = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
+    if (!response.ok) throw new Error(`Piped API error: ${response.status}`);
+    const data = await response.json();
 
+    const audioStreamUrl = data.audioStreams?.[0]?.url;
+    if (!audioStreamUrl) throw new Error("No audio stream found from Piped");
+
+    // 🔹 FFMPEG toma el audio directo desde el stream de Piped
     const passThrough = new PassThrough();
-    
-    const ffmpegProcess = ffmpeg(audioStream)
+    const ffmpegProcess = ffmpeg(audioStreamUrl)
       .audioCodec("libmp3lame")
       .audioBitrate(128)
       .format("mp3")
       .on("error", (error) => {
         console.error(`FFmpeg error for ${radioName}:`, error);
-        // Try to play next song on error
         setTimeout(() => playNextSong(radioName), 1000);
       })
       .on("end", () => {
         console.log(`Song finished for ${radioName}, playing next`);
-        // Play next song when current one ends
         setTimeout(() => playNextSong(radioName), 500);
       });
 
@@ -218,7 +226,6 @@ async function startStreaming(radioName: string, song: Song) {
       listeners: existing?.listeners || new Set(),
     });
 
-    // Pipe to all existing listeners
     const streamData = activeStreams.get(radioName);
     if (streamData) {
       streamData.listeners.forEach(res => {
@@ -231,6 +238,8 @@ async function startStreaming(radioName: string, song: Song) {
     throw error;
   }
 }
+
+
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
