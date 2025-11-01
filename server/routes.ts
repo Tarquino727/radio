@@ -80,6 +80,7 @@ async function getSongFromYouTube(url: string): Promise<Song> {
 
     // 🔹 Lista de mirrors alternativos de Piped
     const pipedMirrors = [
+      "https://pipedapi.namazso.eu",
       "https://pipedapi.syncpundit.io",
       "https://pipedapi.leptons.xyz",
       "https://pipedapi.adminforge.de",
