@@ -70,7 +70,7 @@ function extractYouTubeId(url: string): string | null {
 }
 
 
-// Get song info from YouTube (con fallback de mirrors Piped)
+// Get song info from YouTube usando la API pública de Invidious (más estable)
 async function getSongFromYouTube(url: string): Promise<Song> {
   try {
     const videoId = extractYouTubeId(url);
@@ -78,50 +78,52 @@ async function getSongFromYouTube(url: string): Promise<Song> {
       throw new Error("Invalid YouTube URL");
     }
 
-    // 🔹 Lista de mirrors alternativos de Piped
-    const pipedMirrors = [
-      "https://pipedapi.namazso.eu",
-      "https://pipedapi.syncpundit.io",
-      "https://pipedapi.leptons.xyz",
-      "https://pipedapi.adminforge.de",
-      "https://pipedapi.kavin.rocks", // último por compatibilidad
+    // Mirrors de Invidious (más estables que Piped)
+    const invidiousMirrors = [
+      "https://invidious.fdn.fr",
+      "https://invidious.tiekoetter.com",
+      "https://invidious.projectsegfau.lt",
+      "https://invidious.slipfox.xyz",
     ];
 
     let response: globalThis.Response | undefined;
-    for (const mirror of pipedMirrors) {
+    for (const mirror of invidiousMirrors) {
       try {
-        response = await fetch(`${mirror}/streams/${videoId}`);
+        response = await fetch(`${mirror}/api/v1/videos/${videoId}`);
         if (response.ok) {
-          console.log(`✅ Usando mirror: ${mirror}`);
+          console.log(`✅ Usando Invidious mirror: ${mirror}`);
           break;
         } else {
-          console.warn(`⚠️ Mirror falló (${mirror}): ${response.status}`);
+          console.warn(`⚠️ Invidious mirror falló (${mirror}): ${response.status}`);
         }
       } catch (err) {
-        console.warn(`⚠️ Error al conectar con mirror ${mirror}:`, err);
+        console.warn(`⚠️ Error al conectar con Invidious mirror ${mirror}:`, err);
       }
     }
 
-
     if (!response || !response.ok) {
-      throw new Error("❌ Ningún mirror Piped disponible");
+      throw new Error("❌ Ningún mirror Invidious disponible");
     }
 
     const data = await response.json();
 
-    // Selecciona el primer stream de audio disponible
-    const audioStream = data.audioStreams?.[0];
-    if (!audioStream) {
+    // Buscar el mejor stream de audio
+    const audioStream = data.adaptiveFormats?.find(
+      (f: any) => f.type.includes("audio/")
+    );
+    if (!audioStream || !audioStream.url) {
       throw new Error("No audio stream found for this video");
     }
 
     return {
       id: randomUUID(),
-      title: data.title,
-      artist: data.uploader || "Unknown",
-      duration: Math.floor(data.duration / 1000),
+      title: data.title || "Unknown Title",
+      artist: data.author || "Unknown Artist",
+      duration: Math.floor(data.lengthSeconds),
       url: `https://www.youtube.com/watch?v=${videoId}`,
-      thumbnail: data.thumbnailUrl,
+      thumbnail: Array.isArray(data.videoThumbnails)
+        ? data.videoThumbnails[data.videoThumbnails.length - 1]?.url
+        : undefined,
       source: "youtube",
     };
   } catch (error) {
